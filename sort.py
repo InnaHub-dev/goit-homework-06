@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import sys 
+from pathlib import Path
 
 
 REG_NORMALIZE = re.compile(r'(?!(\.[a-z0-9]{3,4}))[^0-9a-zA-Za-яА-Яіїґ_]')
@@ -45,39 +46,30 @@ def categorize_files(sorting_dictionary: dict, file_path_list: list) -> dict:
   return sorted_dict
          
   
-def create_folder(directory: str, folder_name: str) -> str:
+def create_folder(directory, folder_name):
   
-  folder_path = os.path.join(directory, folder_name)
-  print(folder_path)
-  os.mkdir(folder_path)  
+  folder_path = directory/folder_name
+  folder_path.mkdir()
 
   return folder_path
 
 
-def file_category(path: str, sorting_dict: dict) -> str:
+def file_category(path, sorting_dict):
 
   '''Function gets the file category by extention in keys of sorting_dict.
 
   Returns category name.
   '''
 
-  name = os.path.basename(path)
-  extention = get_extention(name)
+  extention = path.suffix.split('.')[1]
 
   for key,values in sorting_dict.items():
 
     if extention in values: 
         return key 
     
-    
-def get_extention(filename: str) -> str:
-   
-   file_extention = re.search(REG_EXTENTION, filename).group()
 
-   return file_extention
-
-
-def rename_tree(directory: str, Flag=True) -> tuple(list, list):
+def rename_tree(directory, sorting_folders):
 
 
   '''Function iterates through files and folders in a given directory
@@ -91,39 +83,40 @@ def rename_tree(directory: str, Flag=True) -> tuple(list, list):
 
   files_list = []
   folders_list = []
-  dir_content = os.listdir(directory)
+  dir_content = directory.iterdir()
 
-  if Flag == True:
-     dir_content = set(os.listdir(directory)) - set(SORTING_DICT.keys()) #ignore sorting folders
+  if sorting_folders:
 
+    dir_content = set(dir_content) - set(sorting_folders)
+  
   for obj in dir_content:
 
-    if not obj.startswith("."):
+    if not obj.stem.startswith('.'):
 
-      new_path = rename_object(obj, directory, CYRILLIC, TRANSLATION)
+      new_obj = rename_object(obj, directory, CYRILLIC, TRANSLATION)
    
-      if os.path.isfile(new_path):
-          files_list.append(new_path)
+      if new_obj.is_file(): 
+          files_list.append(new_obj)
     
-      elif os.path.isdir(new_path):
-        folders_list.append(new_path)
-        files,folders = rename_tree(new_path)
+      elif new_obj.is_dir():
+        folders_list.append(new_obj)
+        files,folders = rename_tree(new_obj, sorting_folders)
         files_list.extend(files)
         folders_list.extend(folders)
     
   return files_list, folders_list
 
 
-def is_extention_in_cat(sorting_dictionary: dict, category: str, object: str) -> str:
+def is_extention_in_cat(sorting_dictionary, category, object):
 
-  obj_extention = get_extention(object)
+  obj_extention = object.suffix.split('.')[1]
 
   if obj_extention in sorting_dictionary[category]:
 
     return obj_extention
   
 
-def normalize(string: str, translist1: list, translist2: list):
+def normalize(string, translist1, translist2):
 
   '''Function normalizes the string according to regex and translates the string using two lists.
 
@@ -138,30 +131,25 @@ def normalize(string: str, translist1: list, translist2: list):
   return trans_string 
 
 
-def rename_object(name: str, directory: str, translist1: list, translist2: list) -> str: 
+def rename_object(path, directory, translist1, translist2): 
   
   '''Function renames an iterable object.
 
   Returns a new object path to a file with changed name.
   '''
 
-  path = os.path.join(directory, name)
-  new_name = normalize(name, translist1, translist2)
-  new_obj_path = os.path.join(directory, new_name)
-  os.rename(path, new_obj_path)
+  new_name = normalize(path.stem, translist1, translist2)
+  new_obj_path = directory/f'{new_name}{path.suffix}'
+  path.rename(new_obj_path)
 
   return new_obj_path
   
-    
-def remove_duplicates():
-   pass
+
+def unpack_archive_to_subfolder(archive_folder, archive_name, extention):
 
 
-def unpack_archive_to_subfolder(archive_folder: str, archive_name: str, extention: str) -> None:
-
-
-  folder_to_unpack = os.path.join(archive_folder,archive_name.split(f'.{extention}')[0])  
-  os.mkdir(folder_to_unpack)
+  folder_to_unpack = archive_folder/archive_name.split(f'.{extention}')[0]
+  folder_to_unpack.mkdir()
   shutil.unpack_archive(archive_name,folder_to_unpack,extention)
 
 
@@ -172,26 +160,30 @@ def main():
   By default it ignores the sorting folders, but you may include them in a sorting process by changing Flag to False in get_path_from_user().
   '''
 
-  #directory = '/Users/inna/Documents/Test-folder'
-
-  directory = sys.argv[1]
-  files,folders = rename_tree(directory) 
-
-  sorted_dict = categorize_files(SORTING_DICT, files)
-  print(sorted_dict)
+  directory = Path('/Users/inna/Documents/Test-folder')
 
   sorting_folders = {}
 
   for key in SORTING_DICT.keys():
     
-    try:
+    try:  
         create_folder(directory, key)
       
     except FileExistsError:
         print(f'Folder "{key}" exists')
 
-    folder_path = os.path.join(directory, key)   
+    folder_path = directory/key
     sorting_folders.update({key:folder_path})
+  
+  folders_paths = sorting_folders.values()
+ 
+  #directory = sys.argv[1]
+  files,folders = rename_tree(directory, folders_paths) 
+  print(folders)
+  
+
+  # sorted_dict = categorize_files(SORTING_DICT, files)
+  # print(sorted_dict)
 
 
   # move files to folders
@@ -220,27 +212,29 @@ def main():
 
 
   #remove empty folders
-
+  folders.sort(key = lambda f: -len(list(f.parents)))
+  print(list(folders))
   for path in folders:
     
-    if len(os.listdir(path)) == 0:
-        os.rmdir(path)
+    print(len(os.listdir(path)))
+    content = os.listdir(path)
+    if len(os.listdir(path)) == 0 or all(c.startswith('.') for c in content):
+        shutil.rmtree(path)
 
+  # #unpack archives
 
-  #unpack archives
+  # archive_folder = os.path.join(directory, ARCHIVES)
 
-  archive_folder = os.path.join(directory, ARCHIVES)
-
-  for obj in os.listdir(archive_folder):
+  # for obj in os.listdir(archive_folder):
     
-    obj_extention = is_extention_in_cat(SORTING_DICT, ARCHIVES, obj)
-    path = os.path.join(directory,obj)
+  #   obj_extention = is_extention_in_cat(SORTING_DICT, ARCHIVES, obj)
+  #   path = os.path.join(directory,obj)
 
-    try:
-        unpack_archive_to_subfolder(archive_folder, obj, obj_extention)
+  #   try:
+  #       unpack_archive_to_subfolder(archive_folder, obj, obj_extention)
 
-    except FileExistsError:
-      print(f"This {obj} folder already exists")
+  #   except FileExistsError:
+  #     print(f"This {obj} folder already exists")
       
 
 if __name__ == '__main__':
