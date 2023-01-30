@@ -26,6 +26,16 @@ def create_sorted_dict(sorting_dictionary: dict) -> dict:
     sorted_dict.update({key:[]})
   
   return sorted_dict
+
+
+def exclude_directories(paths: list, sorting_dictionary) -> list:
+
+  exclude = '|'.join(key for key in sorting_dictionary.keys())  
+  paths = [str(f) for f in paths]
+  filtered_path_strings = list(filter(lambda x: not re.search(exclude, x), paths))
+  filtered_paths = [Path(f) for f in filtered_path_strings]
+
+  return filtered_paths
           
 
 def file_category(path: Path, sorting_dict: dict) -> str:
@@ -73,57 +83,26 @@ def remove_empty_folders(folder_paths_list: list) -> None:
         shutil.rmtree(path)
 
 
-def rename_tree(directory: Path, Flag=True) -> tuple[list, list]:
+def rename_tree(directory: Path, Flag) -> None:
 
 
   '''Function iterates through files and folders in a given directory
 
-  Parameters: Flag = True ignores folders that have same names and keys in sorting dictionary
-
-  Unlike os.walk() it may exclude not only certain folders but also their subfolders.
-
-  Returns 2 dictionaris of filenames and their paths and folders and their paths.
+  Flag = True ignores folders that have same names and keys in sorting dictionary.
   '''
 
-  files_list = []
-  folders_list = []
-  dir_content = directory.iterdir()
+  dir_content = list(directory.rglob('[!.]*'))
 
   if Flag == True:
-
-    dir_content = set(dir_content) - set(directory/key for key in SORTING_DICT.keys())
+     
+     dir_content = exclude_directories(dir_content, SORTING_DICT)
   
-  for obj in dir_content:
+  dir_content.sort(key = lambda f: -len(f.parents))
 
-    if not obj.stem.startswith('.'):
-
-      new_obj = rename_object(obj, directory, CYRILLIC, TRANSLATION)
-   
-      if new_obj.is_file(): 
-          files_list.append(new_obj)
-    
-      elif new_obj.is_dir():
-        folders_list.append(new_obj)
-        files,folders = rename_tree(new_obj)
-        files_list.extend(files)
-        folders_list.extend(folders)
-    
-  return files_list, folders_list
-
-
-def rename_object(path: Path, directory: Path, translist1: list, translist2: list) -> Path:
-  
-  '''Function renames an iterable object.
-
-  Returns a new object path to a file with changed name.
-  '''
-
-  new_name = normalize(path.stem, translist1, translist2)
-  new_obj_path = directory/f'{new_name}{path.suffix}'
-  path.rename(new_obj_path)
-
-  return new_obj_path
-  
+  for f in dir_content:
+      new_name = normalize(f.stem, CYRILLIC, TRANSLATION)
+      new_obj_path = f.parent/f'{new_name}{f.suffix}'
+      f.rename(new_obj_path)
 
 def unpack_archive_to_subfolder(archive_folder: Path, archive_name: Path, extention: str) -> None:
 
@@ -133,14 +112,14 @@ def unpack_archive_to_subfolder(archive_folder: Path, archive_name: Path, extent
   shutil.unpack_archive(archive_name, folder_to_unpack, extention)
 
 
-def main():
+def main(Flag = True):
 
   '''Script renames the files and folders, sorts the files in the given directory to folders specified as keys in a sorting dictionary, removes empty folders and prints the found files and their extentions by categories.
 
-  By default it ignores the sorting folders, but you may include them in a sorting process by changing Flag to False in get_path_from_user().
+  By default it ignores the sorting folders, but you may include them in a sorting process by changing Flag to False.
   '''
 
-  # directory = Path('/Users/inna/Documents/Test-folder')
+  #directory = Path('/Users/inna/Documents/Test-folder')
 
   directory = sys.argv[1]
   directory = Path(directory)
@@ -148,7 +127,7 @@ def main():
   if not directory.exists():
      print("Sorry, such directory doesn't exist")
      return 
-  
+
   for key in SORTING_DICT.keys():
     
     try: 
@@ -159,10 +138,15 @@ def main():
     except FileExistsError:
         print(f'Folder "{key}" exists')
 
- 
-  files,folders = rename_tree(directory) 
+  rename_tree(directory, Flag) 
 
-  print(files)
+  files = [p for p in directory.rglob('?*.*') if p.is_file()]
+  folders = [p for p in directory.rglob('*') if p.is_dir()]
+   
+  if Flag == True:
+      
+      files = exclude_directories(files, SORTING_DICT)
+      folders = exclude_directories(folders, SORTING_DICT)
 
  # move files to folders and sort
 
