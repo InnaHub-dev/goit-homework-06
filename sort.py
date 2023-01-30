@@ -1,7 +1,9 @@
+import glob 
 import os
 import re
 import shutil
 import sys 
+
 from pathlib import Path
 
 
@@ -13,22 +15,65 @@ TRANSLATION = ("a", "b", "v", "g", "d", "e", "e", "j", "z", "i", "j", "k", "l", 
 
 ARCHIVES = 'archives'
 
-SORTING_DICT = {'images':['jpeg', 'png', 'jpg', 'svg', 'psd'],'video':['avi', 'mp4', 'mov', 'mkv'],'documents':['doc', 'docx', 'txt', 'pdf', 'xlsx', 'pptx'],'music':['mp3', 'ogg', 'wav', 'amr'], ARCHIVES:['zip', 'gz', 'tar']}
+SORTING_DICT = {'images':['jpeg', 'png', 'jpg', 'svg'],'video':['avi', 'mp4', 'mov', 'mkv'],'documents':['doc', 'docx', 'txt', 'pdf', 'xlsx', 'pptx'],'music':['mp3', 'ogg', 'wav', 'amr'], ARCHIVES:['zip', 'gz', 'tar']}
+
+
+def categorize_files(files: list[Path], sorting_dictionary: dict) -> tuple[dict, dict]:
+
+  """Function categorizes files by sorting_dictionary categories.
+  
+  Returns two dictionaries: sorted_dict - with all the files by categories, \
+  and extentions - known and unknown extentions."""
+    
+  sorted_dict = create_sorted_dict(sorting_dictionary)
+  extentions = {'known':set(), 'unknown':set()}
+
+  for file in files:
+      
+      file_cat = file_category(file, sorting_dictionary)
+      extention = file.suffix.split('.')[1]
+
+      if file_cat != None:
+        sorted_dict.update({file_cat:file.name})
+        extentions['known'].add(extention)
+
+      else: 
+        sorted_dict.update({'unknown':file.name})
+        extentions['unknown'].add(extention)
+  
+  return sorted_dict, extentions
 
 
 def create_sorted_dict(sorting_dictionary: dict) -> dict:
 
-  """Function createds a dictionary for sorted files ."""
+  """Function creates a dictionary for sorted files."""
    
   sorted_dict = {}
 
   for key in sorting_dictionary.keys():
     sorted_dict.update({key:[]})
   
+  sorted_dict.update({'unknown':[]})
+  
   return sorted_dict
 
 
-def exclude_directories(paths: list, sorting_dictionary) -> list:
+def create_sorting_folders(directory: Path, names: list) -> None:
+
+  """Function creates new folders."""
+
+  for name in names:
+    
+    try: 
+
+      folder_path = directory/name
+      folder_path.mkdir()
+      
+    except FileExistsError:
+        print(f'Folder "{name}" exists')
+
+
+def exclude_directories(paths: list, sorting_dictionary: dict) -> list:
 
   exclude = '|'.join(key for key in sorting_dictionary.keys())  
   paths = [str(f) for f in paths]
@@ -38,19 +83,39 @@ def exclude_directories(paths: list, sorting_dictionary) -> list:
   return filtered_paths
           
 
-def file_category(path: Path, sorting_dict: dict) -> str:
+def file_category(path: Path, sorting_dictionary: dict) -> str:
 
-  '''Function gets the file category by extention in keys of sorting_dict.
+  '''Function gets the file category by extention in keys of sorting_dictionary.
 
   Returns category name.
   '''
 
   extention = path.suffix.split('.')[1]
 
-  for key,values in sorting_dict.items():
+  for key,values in sorting_dictionary.items():
 
     if extention in values: 
-        return key 
+        return key
+  
+def get_objects_in_dir(directory: Path, type_of_obj: str, Flag: bool) -> list:
+    
+    """Function gets a list of objects from a given directory.
+    
+  Parameters:
+    directory: a path to a directory to create folders in
+    type_of_obj: can take two forms - 'files' or 'folders'.
+  """
+    match type_of_obj:
+       
+      case 'files':
+          objects = [p for p in directory.rglob('?*.*') if p.is_file()]
+      case 'folders':
+          objects = [p for p in directory.rglob('*') if p.is_dir()]
+    
+    if Flag == True:
+       objects = exclude_directories(objects, SORTING_DICT)
+
+    return objects
     
 
 def normalize(string: str, translist1: list, translist2: list) -> str:
@@ -68,7 +133,7 @@ def normalize(string: str, translist1: list, translist2: list) -> str:
   return trans_string 
 
 
-def remove_empty_folders(folder_paths_list: list) -> None:
+def remove_empty_folders(folder_paths_list: list[Path]) -> None:
 
   '''Function sorts the folders by their depth and removes the empty deepest ones first. 
   
@@ -85,10 +150,9 @@ def remove_empty_folders(folder_paths_list: list) -> None:
 
 def rename_tree(directory: Path, Flag) -> None:
 
+  '''Function iterates through files and folders in a given directory.
 
-  '''Function iterates through files and folders in a given directory
-
-  Flag = True ignores folders that have same names and keys in sorting dictionary.
+  Flag = True ignores folders that have the same names as keys in a sorting dictionary.
   '''
 
   dir_content = list(directory.rglob('[!.]*'))
@@ -104,12 +168,59 @@ def rename_tree(directory: Path, Flag) -> None:
       new_obj_path = f.parent/f'{new_name}{f.suffix}'
       f.rename(new_obj_path)
 
-def unpack_archive_to_subfolder(archive_folder: Path, archive_name: Path, extention: str) -> None:
+
+def sort_and_move_files(files: list[Path], directory: Path, sorting_dictionary: dict) -> None:
+
+  """Function checks if a file belongs to any category in a sorting_dictionary and moves it to the sorting folder.
+
+  If the file isn't in any category, does nothing.
+  """
+
+  for path in files:
+    file_cat = file_category(path, sorting_dictionary)
+    
+    if not file_cat == None:
+
+      try: 
+
+          shutil.move(path, directory/file_cat)
+        
+      except FileExistsError:
+          print(f"An object with {path} already exists.")
+
+      except FileNotFoundError:
+          print(f'No "{file_cat}" folder in {directory}')
+      
+      except TypeError:
+          print(f'{file_cat} category is unknown')
+
+      except shutil.Error:
+          print(f'Destination {directory/file_cat}/{path} already exists')
 
 
-  folder_to_unpack = archive_folder/archive_name.stem
+def unpack_archive_to_subfolder(directory: Path, archive_name: Path, extention: str) -> None:
+
+
+  folder_to_unpack = directory/archive_name.stem
   folder_to_unpack.mkdir()
   shutil.unpack_archive(archive_name, folder_to_unpack, extention)
+
+
+def unpack_archives_in_dir(directory: Path, extentions: list) -> None:
+  
+  for obj in directory.glob('?*.*'):
+    extention = obj.suffix.split('.')[1]
+
+    if extention in extentions:
+
+      try:
+          unpack_archive_to_subfolder(directory, obj, extention)
+
+      except FileExistsError:
+        print(f"This {obj} folder already exists")
+
+      except shutil.ReadError:
+        print("This archive couldn't be unpacked.")
 
 
 def main(Flag = True):
@@ -128,82 +239,26 @@ def main(Flag = True):
      print("Sorry, such directory doesn't exist")
      return 
 
-  for key in SORTING_DICT.keys():
-    
-    try: 
-
-      folder_path = directory/key
-      folder_path.mkdir()
-      
-    except FileExistsError:
-        print(f'Folder "{key}" exists')
+  names = list(SORTING_DICT.keys())
+  create_sorting_folders(directory, names)
 
   rename_tree(directory, Flag) 
 
-  files = [p for p in directory.rglob('?*.*') if p.is_file()]
-  folders = [p for p in directory.rglob('*') if p.is_dir()]
-   
-  if Flag == True:
-      
-      files = exclude_directories(files, SORTING_DICT)
-      folders = exclude_directories(folders, SORTING_DICT)
+  files = get_objects_in_dir(directory, 'files', Flag)
+  folders = get_objects_in_dir(directory, 'folders', Flag)
 
- # move files to folders and sort
-
-  sorted_dict = create_sorted_dict(SORTING_DICT)
-  known_extentions = set()
-  unknown_extentions = set()
-
-  for path in files:
-
-    file_cat = file_category(path, SORTING_DICT)
-    extention = path.suffix.split('.')[1]
-    
-    if not file_cat == None:
-      known_extentions.add(extention)
-      sorted_dict[file_cat].append(path.name)
-
-      try: 
-
-          shutil.move(path, directory/file_cat)
-        
-      except FileExistsError:
-          print(f"An object with {path} already exists.")
-
-      except FileNotFoundError:
-          print(f'No "{file_cat}" folder in {directory}')
-      
-      except TypeError:
-          print(f'{file_cat} category is unknown')
-
-      except shutil.Error:
-          print(f'Destination {directory/file_cat}/{path} already exists')
-    
-    else:
-      unknown_extentions.add(extention)
+  sort_and_move_files(files, directory, SORTING_DICT)
 
   remove_empty_folders(folders)
 
-  archive_folder = directory/ARCHIVES
+  archive_folder = directory/ARCHIVES 
+  extentions = SORTING_DICT[ARCHIVES]
+  unpack_archives_in_dir(archive_folder, extentions)
 
-  for obj in archive_folder.glob('?*.*'):
+  sorted_dict, extentions = categorize_files(files, SORTING_DICT)
 
-    extention = obj.suffix.split('.')[1]
-
-    if extention in SORTING_DICT[ARCHIVES]:
-  
-      try:
-          unpack_archive_to_subfolder(archive_folder, obj, extention)
-
-      except FileExistsError:
-        print(f"This {obj} folder already exists")
-
-      except shutil.ReadError:
-         print("This archive couldn't be unpacked.")
-
-  print('Known extentions: ', known_extentions)
-  print('Unknown extentions: ', unknown_extentions)
-  print('Files by categories: ', sorted_dict)
+  print(sorted_dict)
+  print(extentions)
 
 if __name__ == '__main__':
    main()
